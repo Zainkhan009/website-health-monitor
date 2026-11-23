@@ -1,0 +1,8 @@
+
+services:
+  website-monitor:
+    build: .
+    container_name: website-health-monitor
+    restart: unless-stopped
+    env_file:
+      - .env
