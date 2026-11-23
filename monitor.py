@@ -2,6 +2,7 @@
 import httpx
 import time
 import sqlite3
+import os
 from datetime import datetime, timezone
 from email_alerts import send_email
 
@@ -11,13 +12,14 @@ WEBSITES = [
     "https://microsoft.com"
 ]
 
-DATABASE = "monitor.db"
+DATABASE = "/app/data/monitor.db"
 
-# Performance threshold: 2000 milliseconds (2 seconds)
 RESPONSE_TIME_THRESHOLD = 2000
 
 
 def create_database():
+    os.makedirs(os.path.dirname(DATABASE), exist_ok=True)
+
     connection = sqlite3.connect(DATABASE)
 
     connection.execute("""
@@ -101,8 +103,7 @@ def update_incident(url, status):
         """, (url, started_at))
 
         connection.commit()
-
-        print("New incident recorded!")
+        print("New incident recorded!", flush=True)
 
         send_email(
             "Website DOWN Alert",
@@ -111,7 +112,6 @@ def update_incident(url, status):
 
     elif status == "UP" and incident is not None:
         incident_id, started_at = incident
-
         ended_at = datetime.now(timezone.utc).isoformat()
 
         duration = (
@@ -128,8 +128,7 @@ def update_incident(url, status):
         """, (ended_at, duration, incident_id))
 
         connection.commit()
-
-        print("Incident closed!")
+        print("Incident closed!", flush=True)
 
         send_email(
             "Website Recovery Alert",
@@ -166,8 +165,7 @@ def update_performance_incident(url, response_time):
             """, (url, started_at, response_time))
 
             connection.commit()
-
-            print("Performance threshold exceeded!")
+            print("Performance threshold exceeded!", flush=True)
 
             send_email(
                 "Website Slow Performance Alert",
@@ -189,11 +187,13 @@ def update_performance_incident(url, response_time):
 
                 connection.commit()
 
-            print("Website is still above performance threshold.")
+            print(
+                "Website is still above performance threshold.",
+                flush=True
+            )
 
     elif incident is not None:
         incident_id, started_at, max_response_time = incident
-
         ended_at = datetime.now(timezone.utc).isoformat()
 
         cursor.execute("""
@@ -204,8 +204,7 @@ def update_performance_incident(url, response_time):
         """, (ended_at, incident_id))
 
         connection.commit()
-
-        print("Website performance recovered!")
+        print("Website performance recovered!", flush=True)
 
         send_email(
             "Website Performance Recovery Alert",
@@ -219,8 +218,7 @@ def update_performance_incident(url, response_time):
 
 
 def check_website(url):
-    print(f"\nChecking: {url}")
-
+    print(f"\nChecking: {url}", flush=True)
     start = time.perf_counter()
 
     try:
@@ -231,12 +229,11 @@ def check_website(url):
         )
 
         response_time = (time.perf_counter() - start) * 1000
-
         status = "UP" if 200 <= response.status_code < 400 else "DOWN"
 
-        print(f"Status: {status}")
-        print(f"HTTP Code: {response.status_code}")
-        print(f"Response Time: {response_time:.2f} ms")
+        print(f"Status: {status}", flush=True)
+        print(f"HTTP Code: {response.status_code}", flush=True)
+        print(f"Response Time: {response_time:.2f} ms", flush=True)
 
         save_result(
             url,
@@ -253,8 +250,8 @@ def check_website(url):
     except httpx.RequestError as error:
         response_time = (time.perf_counter() - start) * 1000
 
-        print("Status: DOWN")
-        print(f"Error: {error}")
+        print("Status: DOWN", flush=True)
+        print(f"Error: {error}", flush=True)
 
         save_result(
             url,
@@ -271,19 +268,21 @@ if __name__ == "__main__":
 
     create_database()
 
-    print("WEBSITE HEALTH & UPTIME MONITOR")
-    print("Database connected successfully!")
-    print(f"Performance Threshold: {RESPONSE_TIME_THRESHOLD} ms")
+    print("WEBSITE HEALTH & UPTIME MONITOR", flush=True)
+    print("Database connected successfully!", flush=True)
+    print(
+        f"Performance Threshold: {RESPONSE_TIME_THRESHOLD} ms",
+        flush=True
+    )
 
     while True:
-
-        print("\nStarting monitoring cycle...")
+        print("\nStarting monitoring cycle...", flush=True)
 
         for website in WEBSITES:
             check_website(website)
 
-        print("\nAll results saved to database.")
-        print("Next check in 60 seconds...")
+        print("\nAll results saved to database.", flush=True)
+        print("Next check in 60 seconds...", flush=True)
 
         time.sleep(60)
 
