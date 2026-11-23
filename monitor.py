@@ -13,6 +13,9 @@ WEBSITES = [
 
 DATABASE = "monitor.db"
 
+# Performance threshold: 2000 milliseconds (2 seconds)
+RESPONSE_TIME_THRESHOLD = 2000
+
 
 def create_database():
     connection = sqlite3.connect(DATABASE)
@@ -36,6 +39,17 @@ def create_database():
             started_at TEXT NOT NULL,
             ended_at TEXT,
             duration_seconds REAL,
+            status TEXT NOT NULL
+        )
+    """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS performance_incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            max_response_time REAL,
             status TEXT NOT NULL
         )
     """)
@@ -126,6 +140,84 @@ def update_incident(url, status):
     connection.close()
 
 
+def update_performance_incident(url, response_time):
+    connection = sqlite3.connect(DATABASE)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT id, started_at, max_response_time
+        FROM performance_incidents
+        WHERE url = ? AND status = 'OPEN'
+        ORDER BY id DESC
+        LIMIT 1
+    """, (url,))
+
+    incident = cursor.fetchone()
+
+    if response_time > RESPONSE_TIME_THRESHOLD:
+
+        if incident is None:
+            started_at = datetime.now(timezone.utc).isoformat()
+
+            cursor.execute("""
+                INSERT INTO performance_incidents
+                (url, started_at, max_response_time, status)
+                VALUES (?, ?, ?, 'OPEN')
+            """, (url, started_at, response_time))
+
+            connection.commit()
+
+            print("Performance threshold exceeded!")
+
+            send_email(
+                "Website Slow Performance Alert",
+                f"Warning! Website response time is too high.\n\n"
+                f"Website: {url}\n"
+                f"Response Time: {response_time:.2f} ms\n"
+                f"Allowed Threshold: {RESPONSE_TIME_THRESHOLD} ms"
+            )
+
+        else:
+            incident_id, started_at, max_response_time = incident
+
+            if response_time > max_response_time:
+                cursor.execute("""
+                    UPDATE performance_incidents
+                    SET max_response_time = ?
+                    WHERE id = ?
+                """, (response_time, incident_id))
+
+                connection.commit()
+
+            print("Website is still above performance threshold.")
+
+    elif incident is not None:
+        incident_id, started_at, max_response_time = incident
+
+        ended_at = datetime.now(timezone.utc).isoformat()
+
+        cursor.execute("""
+            UPDATE performance_incidents
+            SET ended_at = ?,
+                status = 'CLOSED'
+            WHERE id = ?
+        """, (ended_at, incident_id))
+
+        connection.commit()
+
+        print("Website performance recovered!")
+
+        send_email(
+            "Website Performance Recovery Alert",
+            f"Good news! Website performance has recovered.\n\n"
+            f"Website: {url}\n"
+            f"Current Response Time: {response_time:.2f} ms\n"
+            f"Maximum Response Time: {max_response_time:.2f} ms"
+        )
+
+    connection.close()
+
+
 def check_website(url):
     print(f"\nChecking: {url}")
 
@@ -155,6 +247,9 @@ def check_website(url):
 
         update_incident(url, status)
 
+        if status == "UP":
+            update_performance_incident(url, response_time)
+
     except httpx.RequestError as error:
         response_time = (time.perf_counter() - start) * 1000
 
@@ -178,6 +273,7 @@ if __name__ == "__main__":
 
     print("WEBSITE HEALTH & UPTIME MONITOR")
     print("Database connected successfully!")
+    print(f"Performance Threshold: {RESPONSE_TIME_THRESHOLD} ms")
 
     while True:
 
